@@ -1,0 +1,128 @@
+---
+title: "Human Activity Recognition"
+output: html_document
+---
+Chang Yuan Lee
+
+## Introduction
+
+Machine learning methods were used to classify dumbell lifts according to the type of error in execution (if any) based on accelerometer data. Credit to Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. (http://groupware.les.inf.puc-rio.br/har) for the data.
+
+The following R libraries were used.
+```{r message = FALSE}
+library(ggplot2)
+library(caret)
+library(doParallel)
+library(e1071)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+library(scales)
+```
+
+## Data
+
+First the csv files were downloaded and read.
+```{r}
+trainUrl <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+trainFile <- "./data/pml-training.csv"
+testFile  <- "./data/pml-testing.csv"
+if (!file.exists("./data")) {
+  dir.create("./data")
+}
+if (!file.exists(trainFile)) {
+  download.file(trainUrl, destfile=trainFile, method="curl")
+}
+if (!file.exists(testFile)) {
+  download.file(testUrl, destfile=testFile, method="curl")
+}
+training <- read.csv("./data/pml-training.csv")
+testing <- read.csv("./data/pml-testing.csv")
+dim(training)
+dim(testing)
+```
+
+The training set contained 19622 observations of 160 variables, and the testing set contained 20 observations.
+
+Many of the variables would not be used for classification (such as timestamps and user names), or contained mostly blank and NA values. These were removed.
+```{r}
+remove <- grepl("^X|user|timestamp|window", names(training))
+training <- training[, !remove]
+remove <- grepl("^X|user|timestamp|window|problem", names(testing))
+testing <- testing[, !remove]
+remove <- which(colSums(is.na(training) | training=="") > 100)
+training <- training[, -remove]
+testing <- testing[, -remove]
+dim(training)
+dim(testing)
+```
+
+Only 52 predictor variables remained after data cleaning.
+
+The data was converted into data frames containing numeric data, with the exception of the "classe" variable.
+```{r}
+classe <- training$classe
+training <- data.frame(data.matrix(training))
+training$classe <- classe
+testing <- data.frame(data.matrix(testing))
+```
+
+The training data was then split into a training set (80%) and a validation set (20%).
+```{r}
+set.seed(12345)
+inTrain <- createDataPartition(training$classe, p=0.80, list=FALSE)
+validation <- training[-inTrain, ]
+training <- training[inTrain, ]
+```
+
+## Model
+
+The random forest method was chosen for the machine learning model due to its high accuracy and manageable computational complexity for a data set of this size, especially since interpretability was not a requirement for this task. Parallel processing was used to improve training speed.
+```{r}
+clust <- makeCluster(detectCores())
+registerDoParallel(clust)
+model <- train(classe ~ ., data=training, method="rf", ntree=200)
+pred1 <- predict(model, validation)
+stopCluster(clust)
+model
+```
+
+Accuracy and out-of-sample error rate of the model was estimated using the validation set.
+```{r}
+confusion <- confusionMatrix(validation$classe, pred1)
+confusion$overall[c(1, 3, 4)]
+```
+The accuracy is 99.4% with a 95% confidence interval between 99.1% and 99.6% accuracy. 
+
+The out-of-sample error rate is:
+```{r}
+percent(1 - as.numeric(confusion$overall[1]))
+```
+
+## Prediction
+
+Finally, the model was used to predict the classes of the testing set.
+```{r}
+pred2 <- predict(model, testing)
+results <- data.frame("Class" = pred2)
+results
+```
+
+## Appendix
+
+Visualization of the type of decision tree used by the random forest method.
+```{r}
+tree <- rpart(classe ~ ., data = training, method = "class")
+prp(tree)
+```
+
+Plot of the error rate of the final model.
+```{r}
+plot(model$finalModel)
+```
+
+Confusion matrix of the model
+```{r}
+confusion
+```
